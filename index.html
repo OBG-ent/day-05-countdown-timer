@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Countdown Timer</title>
+  <style>
+    /* ---- reset & theme ---- */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #0f1115;
+      --card: #1a1e26;
+      --accent: #f0b429; /* gold */
+      --text: #f5f5f5;
+      --muted: #9aa0aa;
+    }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1rem;
+    }
+
+    h1 { letter-spacing: 2px; margin-bottom: .25rem; }
+    .subtitle { color: var(--muted); margin-bottom: 2rem; }
+
+    /* ---- the countdown digits ---- */
+    .timer {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-bottom: 2rem;
+    }
+    .unit {
+      background: var(--card);
+      border: 1px solid #2c323d;
+      border-radius: 12px;
+      min-width: 110px;
+      padding: 1.25rem .5rem;
+      text-align: center;
+    }
+    .unit .value {
+      font-size: 2.5rem;
+      font-weight: 700;
+      color: var(--accent);
+      font-variant-numeric: tabular-nums; /* keeps digits steady */
+    }
+    .unit .label {
+      font-size: .8rem;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--muted);
+      margin-top: .35rem;
+    }
+
+    /* ---- event name & controls ---- */
+    .event-name {
+      font-size: 1.2rem;
+      margin-bottom: 1rem;
+      color: var(--text);
+    }
+    .controls {
+      background: var(--card);
+      border: 1px solid #2c323d;
+      border-radius: 12px;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: .75rem;
+      width: min(420px, 100%);
+    }
+    .controls label { font-size: .85rem; color: var(--muted); }
+    .controls input[type="text"],
+    .controls input[type="datetime-local"] {
+      width: 100%;
+      padding: .6rem .75rem;
+      border-radius: 8px;
+      border: 1px solid #2c323d;
+      background: var(--bg);
+      color: var(--text);
+      color-scheme: dark; /* keeps the calendar popup dark */
+    }
+    .row { display: flex; gap: .5rem; }
+    button {
+      flex: 1;
+      padding: .6rem .75rem;
+      border: none;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #111;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:hover { filter: brightness(1.1); }
+    button.ghost {
+      background: transparent;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+    }
+    .presets { display: flex; gap: .5rem; flex-wrap: wrap; }
+    .presets button { font-size: .8rem; font-weight: 600; }
+    .done {
+      font-size: 1.5rem;
+      color: var(--accent);
+      margin-bottom: 1rem;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>⏳ COUNTDOWN</h1>
+  <p class="subtitle">Count down to anything that matters.</p>
+
+  <div class="done" id="done">🎉 Time's up!</div>
+  <div class="event-name" id="eventName">New Year's Eve</div>
+
+  <!-- the four ticking units -->
+  <div class="timer">
+    <div class="unit"><div class="value" id="days">00</div><div class="label">Days</div></div>
+    <div class="unit"><div class="value" id="hours">00</div><div class="label">Hours</div></div>
+    <div class="unit"><div class="value" id="minutes">00</div><div class="label">Minutes</div></div>
+    <div class="unit"><div class="value" id="seconds">00</div><div class="label">Seconds</div></div>
+  </div>
+
+  <!-- controls to set your own countdown -->
+  <div class="controls">
+    <label for="nameInput">Event name</label>
+    <input type="text" id="nameInput" placeholder="e.g. My birthday" />
+
+    <label for="dateInput">Target date &amp; time</label>
+    <input type="datetime-local" id="dateInput" />
+
+    <div class="row">
+      <button id="startBtn">Start countdown</button>
+      <button class="ghost" id="clearBtn">Clear</button>
+    </div>
+
+    <label>Quick presets</label>
+    <div class="presets">
+      <button class="ghost" data-preset="hour">+1 hour</button>
+      <button class="ghost" data-preset="day">+24 hours</button>
+      <button class="ghost" data-preset="week">+7 days</button>
+      <button class="ghost" data-preset="newyear">🎆 Next New Year</button>
+    </div>
+  </div>
+
+  <script>
+    // ---- grab elements ----
+    const daysEl = document.getElementById("days");
+    const hoursEl = document.getElementById("hours");
+    const minutesEl = document.getElementById("minutes");
+    const secondsEl = document.getElementById("seconds");
+    const eventNameEl = document.getElementById("eventName");
+    const nameInput = document.getElementById("nameInput");
+    const dateInput = document.getElementById("dateInput");
+    const doneEl = document.getElementById("done");
+
+    // the moment we're counting down to (milliseconds timestamp)
+    let target = null;
+    let tickId = null;
+
+    // pad single digits: 5 -> "05"
+    const pad = (n) => String(n).padStart(2, "0");
+
+    // save the current countdown so it survives a page refresh
+    function save() {
+      if (target) {
+        localStorage.setItem("countdown", JSON.stringify({ target, name: eventNameEl.textContent }));
+      }
+    }
+
+    // one tick: compute remaining time and update the display
+    function tick() {
+      const now = Date.now();
+      let diff = target - now;
+
+      if (diff <= 0) {
+        // time's up — freeze at zero and celebrate
+        diff = 0;
+        clearInterval(tickId);
+        doneEl.style.display = "block";
+        localStorage.removeItem("countdown");
+      }
+
+      const d = Math.floor(diff / 86400000);
+      const h = Math.floor((diff % 86400000) / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+
+      daysEl.textContent = pad(d);
+      hoursEl.textContent = pad(h);
+      minutesEl.textContent = pad(m);
+      secondsEl.textContent = pad(s);
+    }
+
+    // start (or restart) the countdown toward `ts`
+    function start(ts, name) {
+      clearInterval(tickId);
+      doneEl.style.display = "none";
+      target = ts;
+      eventNameEl.textContent = name || "Countdown";
+      save();
+      tick();
+      tickId = setInterval(tick, 1000);
+    }
+
+    // ---- wire up the buttons ----
+    document.getElementById("startBtn").addEventListener("click", () => {
+      const ts = new Date(dateInput.value).getTime();
+      if (isNaN(ts) || ts <= Date.now()) {
+        alert("Please pick a date in the future. 🙂");
+        return;
+      }
+      start(ts, nameInput.value.trim() || "Countdown");
+    });
+
+    document.getElementById("clearBtn").addEventListener("click", () => {
+      clearInterval(tickId);
+      localStorage.removeItem("countdown");
+      target = null;
+      doneEl.style.display = "none";
+      eventNameEl.textContent = "No countdown set";
+      [daysEl, hoursEl, minutesEl, secondsEl].forEach((el) => (el.textContent = "00"));
+    });
+
+    // preset buttons: jump to common targets in one click
+    document.querySelectorAll("[data-preset]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const now = Date.now();
+        const p = btn.dataset.preset;
+        if (p === "hour") start(now + 3600000, "One hour from now");
+        if (p === "day") start(now + 86400000, "24 hours from now");
+        if (p === "week") start(now + 7 * 86400000, "One week from now");
+        if (p === "newyear") {
+          const year = new Date().getFullYear() + 1;
+          start(new Date(`${year}-01-01T00:00:00`).getTime(), `New Year ${year} 🎆`);
+        }
+      });
+    });
+
+    // ---- restore a saved countdown on load ----
+    const saved = JSON.parse(localStorage.getItem("countdown") || "null");
+    if (saved && saved.target > Date.now()) {
+      start(saved.target, saved.name);
+    } else {
+      // default demo: count down to the next New Year
+      document.querySelector('[data-preset="newyear"]').click();
+    }
+  </script>
+</body>
+</html>
